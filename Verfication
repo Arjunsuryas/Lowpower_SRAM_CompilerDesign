@@ -1,0 +1,391 @@
+// SRAM Testbench with Power Management Verification
+`timescale 1ns/1ps
+
+module sram_tb;
+    
+    // Parameters
+    parameter DEPTH = 1024;
+    parameter WIDTH = 32;
+    parameter ADDR_WIDTH = $clog2(DEPTH);
+    
+    // Clock and reset
+    logic clk = 0;
+    logic rst_n = 0;
+    
+    // SRAM interface
+    logic ce;
+    logic we;
+    logic [ADDR_WIDTH-1:0] addr;
+    logic [WIDTH-1:0] din;
+    logic [WIDTH-1:0] dout;
+    
+    // Power management
+    logic power_gate;
+    logic retention;
+    logic ready;
+    
+    // Test control
+    logic [WIDTH-1:0] expected_data;
+    logic [WIDTH-1:0] test_pattern [0:DEPTH-1];
+    integer error_count = 0;
+    integer test_count = 0;
+    
+    // Clock generation
+    always #5 clk = ~clk; // 100MHz
+    
+    // DUT instantiation
+    sram_1024x32 u_sram (
+        .clk(clk),
+        .rst_n(rst_n),
+        .ce(ce),
+        .we(we),
+        .addr(addr),
+        .din(din),
+        .dout(dout),
+        .power_gate(power_gate),
+        .retention(retention),
+        .ready(ready)
+    );
+    
+    // Test sequence
+    initial begin
+        $display("Starting SRAM testbench...");
+        
+        // Initialize signals
+        ce = 0;
+        we = 0;
+        addr = 0;
+        din = 0;
+        power_gate = 0;
+        retention = 0;
+        
+        // Reset sequence
+        rst_n = 0;
+        #100;
+        rst_n = 1;
+        #50;
+        
+        // Wait for ready
+        wait(ready);
+        #10;
+        
+        // Test 1: Basic write/read test
+        $display("Test 1: Basic write/read operations");
+        test_basic_operations();
+        
+        // Test 2: Power gating test
+        $display("Test 2: Power gating functionality");
+        test_power_gating();
+        
+        // Test 3: Retention mode test
+        $display("Test 3: Retention mode functionality");
+        test_retention_mode();
+        
+        // Test 4: Address walking test
+        $display("Test 4: Address walking test");
+        test_address_walking();
+        
+        // Test 5: Data pattern test
+        $display("Test 5: Data pattern test");
+        test_data_patterns();
+        
+        // Test 6: Power cycling test
+        $display("Test 6: Power cycling test");
+        test_power_cycling();
+        
+        // Summary
+        $display("\n=== Test Summary ===");
+        $display("Total tests: %d", test_count);
+        $display("Errors: %d", error_count);
+        
+        if (error_count == 0) begin
+            $display("*** ALL TESTS PASSED ***");
+        end else begin
+            $display("*** %d TESTS FAILED ***", error_count);
+        end
+        
+        #100;
+        $finish;
+    end
+    
+    // Task: Basic operations test
+    task test_basic_operations();
+        integer i;
+        begin
+            for (i = 0; i < 16; i++) begin
+                // Write data
+                write_memory(i, 32'hA5A5A5A5 + i);
+                #10;
+                
+                // Read and verify
+                read_memory(i, 32'hA5A5A5A5 + i);
+                #10;
+            end
+        end
+    endtask
+    
+    // Task: Power gating test
+    task test_power_gating();
+        begin
+            // Write some data
+            write_memory(100, 32'hDEADBEEF);
+            #10;
+            
+            // Enable power gating
+            power_gate = 1;
+            #50;
+            
+            // Try to access (should not work)
+            ce = 1;
+            we = 0;
+            addr = 100;
+            #20;
+            
+            if (ready) begin
+                $display("ERROR: Memory should not be ready during power gating");
+                error_count++;
+            end
+            test_count++;
+            
+            // Disable power gating
+            power_gate = 0;
+            wait(ready);
+            #10;
+            
+            // Data should be lost
+            read_memory(100, 32'h00000000); // Expect zero or undefined
+            #10;
+        end
+    endtask
+    
+    // Task: Retention mode test
+    task test_retention_mode();
+        begin
+            // Write test data
+            write_memory(200, 32'hCAFEBABE);
+            #10;
+            
+            // Enable retention mode
+            retention = 1;
+            #50;
+            
+            // Data should be preserved
+            read_memory(200, 32'hCAFEBABE);
+            #10;
+            
+            // Disable retention mode
+            retention = 0;
+            #10;
+            
+            // Data should still be there
+            read_memory(200, 32'hCAFEBABE);
+            #10;
+        end
+    endtask
+    
+    // Task: Address walking test
+    task test_address_walking();
+        integer i;
+        logic [ADDR_WIDTH-1:0] walking_addr;
+        begin
+            // Walking 1s test
+            for (i = 0; i < ADDR_WIDTH; i++) begin
+                walking_addr = 1 << i;
+                write_memory(walking_addr, 32'h12345678 + i);
+                #10;
+            end
+            
+            // Verify walking 1s
+            for (i = 0; i < ADDR_WIDTH; i++) begin
+                walking_addr = 1 << i;
+                read_memory(walking_addr, 32'h12345678 + i);
+                #10;
+            end
+            
+            // Walking 0s test
+            for (i = 0; i < ADDR_WIDTH; i++) begin
+                walking_addr = ~(1 << i);
+                if (walking_addr < DEPTH) begin
+                    write_memory(walking_addr, 32'h87654321 + i);
+                    #10;
+                end
+            end
+            
+            // Verify walking 0s
+            for (i = 0; i < ADDR_WIDTH; i++) begin
+                walking_addr = ~(1 << i);
+                if (walking_addr < DEPTH) begin
+                    read_memory(walking_addr, 32'h87654321 + i);
+                    #10;
+                end
+            end
+        end
+    endtask
+    
+    // Task: Data pattern test
+    task test_data_patterns();
+        integer i;
+        logic [WIDTH-1:0] patterns [0:7];
+        begin
+            // Define test patterns
+            patterns[0] = 32'h00000000; // All zeros
+            patterns[1] = 32'hFFFFFFFF; // All ones
+            patterns[2] = 32'hAAAAAAAA; // Alternating 1010
+            patterns[3] = 32'h55555555; // Alternating 0101
+            patterns[4] = 32'hF0F0F0F0; // Alternating nibbles
+            patterns[5] = 32'h0F0F0F0F; // Alternating nibbles
+            patterns[6] = 32'hFF00FF00; // Alternating bytes
+            patterns[7] = 32'h00FF00FF; // Alternating bytes
+            
+            // Test each pattern
+            for (i = 0; i < 8; i++) begin
+                write_memory(300 + i, patterns[i]);
+                #10;
+                read_memory(300 + i, patterns[i]);
+                #10;
+            end
+        end
+    endtask
+    
+    // Task: Power cycling test
+    task test_power_cycling();
+        integer cycle;
+        begin
+            for (cycle = 0; cycle < 5; cycle++) begin
+                $display("Power cycle %d", cycle);
+                
+                // Write data
+                write_memory(400 + cycle, 32'hC0FFEE00 + cycle);
+                #10;
+                
+                // Power cycle
+                power_gate = 1;
+                #20;
+                power_gate = 0;
+                wait(ready);
+                #10;
+                
+                // Data should be lost after power cycle
+                ce = 1;
+                we = 0;
+                addr = 400 + cycle;
+                #20;
+                ce = 0;
+                
+                test_count++;
+                #10;
+            end
+        end
+    endtask
+    
+    // Task: Write to memory
+    task write_memory(input [ADDR_WIDTH-1:0] address, input [WIDTH-1:0] data);
+        begin
+            @(posedge clk);
+            ce = 1;
+            we = 1;
+            addr = address;
+            din = data;
+            @(posedge clk);
+            ce = 0;
+            we = 0;
+            
+            $display("Write: addr=0x%h, data=0x%h", address, data);
+        end
+    endtask
+    
+    // Task: Read from memory
+    task read_memory(input [ADDR_WIDTH-1:0] address, input [WIDTH-1:0] expected);
+        begin
+            @(posedge clk);
+            ce = 1;
+            we = 0;
+            addr = address;
+            @(posedge clk);
+            @(posedge clk); // Wait for data
+            ce = 0;
+            
+            if (dout !== expected) begin
+                $display("ERROR: addr=0x%h, expected=0x%h, got=0x%h", address, expected, dout);
+                error_count++;
+            end else begin
+                $display("Read OK: addr=0x%h, data=0x%h", address, dout);
+            end
+            test_count++;
+        end
+    endtask
+    
+    // Monitor power state changes
+    always @(power_gate, retention, ready) begin
+        $display("Time %t: power_gate=%b, retention=%b, ready=%b", $time, power_gate, retention, ready);
+    end
+    
+    // Timeout watchdog
+    initial begin
+        #1000000; // 1ms timeout
+        $display("ERROR: Test timeout!");
+        $finish;
+    end
+
+endmodule
+
+// Power Management Testbench
+module power_management_tb;
+    
+    logic clk = 0;
+    logic rst_n = 0;
+    logic sleep_req = 0;
+    logic retention_req = 0;
+    logic power_gate;
+    logic retention_mode;
+    logic power_ready;
+    
+    always #5 clk = ~clk;
+    
+    // DUT
+    sram_power_manager u_pm (
+        .clk(clk),
+        .rst_n(rst_n),
+        .sleep_req(sleep_req),
+        .retention_req(retention_req),
+        .power_gate(power_gate),
+        .retention_mode(retention_mode),
+        .power_ready(power_ready)
+    );
+    
+    initial begin
+        $display("Starting power management testbench...");
+        
+        // Reset
+        rst_n = 0;
+        #100;
+        rst_n = 1;
+        #50;
+        
+        // Test state transitions
+        $display("Testing ACTIVE -> DROWSY");
+        sleep_req = 1;
+        #100;
+        
+        $display("Testing DROWSY -> ACTIVE");
+        sleep_req = 0;
+        #100;
+        
+        $display("Testing ACTIVE -> RETENTION");
+        retention_req = 1;
+        #100;
+        
+        $display("Testing RETENTION -> ACTIVE");
+        retention_req = 0;
+        #100;
+        
+        $display("Power management test completed");
+        $finish;
+    end
+    
+    // Monitor state changes
+    always @(power_gate, retention_mode, power_ready) begin
+        $display("Time %t: PG=%b, RET=%b, RDY=%b", $time, power_gate, retention_mode, power_ready);
+    end
+
+endmodule
