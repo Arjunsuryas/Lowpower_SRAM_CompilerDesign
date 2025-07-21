@@ -1,0 +1,32 @@
+{
+  "name": "riscv-rtl-to-gdsii",
+  "version": "1.0.0",
+  "description": "32-bit RISC-V Processor RTL to GDSII Implementation",
+  "main": "index.js",
+  "scripts": {
+    "lint": "make lint",
+    "sim": "make sim",
+    "synth": "make synth",
+    "clean": "make clean",
+    "docs": "make docs",
+    "help": "make help"
+  },
+  "keywords": [
+    "risc-v",
+    "processor",
+    "rtl",
+    "gdsii",
+    "vlsi",
+    "systemverilog"
+  ],
+  "author": "RTL Design Team",
+  "license": "MIT",
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/riscv-rtl-to-gdsii"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
