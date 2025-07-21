@@ -1,0 +1,93 @@
+# Place and Route Flow Script
+# This script would be used with Cadence Innovus or similar tool
+
+# Set variables
+set DESIGN_NAME "riscv_soc"
+set NETLIST_FILE "../netlist/riscv_soc_syn.v"
+set SDC_FILE "../constraints/riscv_soc_syn.sdc"
+
+# Technology files (would need actual files)
+set LEF_FILES [list \
+    ../tech/your_tech.lef \
+    ../tech/stdcells.lef \
+]
+
+set LIB_FILES [list \
+    ../tech/your_tech_tt.lib \
+    ../tech/your_tech_ff.lib \
+    ../tech/your_tech_ss.lib \
+]
+
+# Initialize design
+set init_verilog $NETLIST_FILE
+set init_design_netlisttype Verilog
+set init_design_settop 1
+set init_top_cell $DESIGN_NAME
+set init_lef_file $LEF_FILES
+set init_mmmc_file "../constraints/mmmc.view"
+
+init_design
+
+# Floorplan
+floorPlan -site core -r 1.0 0.7 10.0 10.0 10.0 10.0
+
+# Power planning
+addRing -nets {VDD VSS} -type core_rings -follow core -layer {top M1 bottom M1 left M2 right M2} \
+    -width {top 1.8 bottom 1.8 left 1.8 right 1.8} -spacing {top 0.5 bottom 0.5 left 0.5 right 0.5} \
+    -offset {top 1.8 bottom 1.8 left 1.8 right 1.8} -center 1 -extend_corner {} -threshold 0 -jog_distance 0 \
+    -snap_wire_center_to_grid None
+
+addStripe -nets {VDD VSS} -layer M2 -direction vertical -width 0.72 -spacing 0.48 \
+    -set_to_set_distance 20 -start_from left -start_offset 10
+
+sroute -connect { blockPin padPin padRing corePin floatingStripe } \
+       -layerChangeRange { M1(1) M9(9) } -blockPinTarget { nearestTarget } \
+       -padPinPortConnect { allPort oneGeom } -padPinTarget { nearestTarget } \
+       -corePinTarget { firstAfterRowEnd } -floatingStripeTarget { blockring padring ring stripe ringpin blockpin followpin } \
+       -allowJogging 1 -crossoverViaLayerRange { M1(1) M9(9) } -nets { VDD VSS } -allowLayerChange 1 -blockPin useLef \
+       -targetViaLayerRange { M1(1) M9(9) }
+
+# Placement
+setPlaceMode -fp false
+placeDesign
+
+# Pre-CTS optimization
+setOptMode -fixCap true -fixTran true -fixFanoutLoad false
+optDesign -preCTS
+
+# Clock Tree Synthesis
+setCTSMode -engine ck -routeClkNet true
+clockDesign -specFile ../constraints/clock.spec -outDir clock_reports -fixedInstBeforeCTS
+
+# Post-CTS optimization
+setOptMode -fixCap true -fixTran true -fixFanoutLoad true
+optDesign -postCTS
+
+# Routing
+setNanoRouteMode -quiet -timingEngine {}
+setNanoRouteMode -quiet -routeWithSiPostRouteFix 0
+setNanoRouteMode -quiet -routeAntennaCellName {}
+setNanoRouteMode -quiet -routeWithTimingDriven 1
+setNanoRouteMode -quiet -routeWithSiDriven 1
+routeDesign -globalDetail
+
+# Post-route optimization
+setOptMode -fixCap true -fixTran true -fixFanoutLoad true
+optDesign -postRoute
+
+# Add filler cells
+addFiller -cell FILL1 FILL2 FILL4 FILL8 FILL16 -prefix FILLER
+
+# Verify connectivity
+verifyConnectivity -type all -error 1000 -warning 50
+
+# Generate reports
+report_timing -max_paths 100 > reports/timing_final.rpt
+report_area > reports/area_final.rpt
+report_power > reports/power_final.rpt
+
+# Export GDS
+streamOut ../gds/riscv_soc_final.gds -mapFile ../tech/streamout.map -libName DesignLib \
+    -units 1000 -mode ALL
+
+echo "Place and Route completed successfully!"
