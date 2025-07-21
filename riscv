@@ -1,0 +1,145 @@
+// RISC-V Core Testbench
+`timescale 1ns/1ps
+
+module riscv_core_tb;
+    import riscv_defines::*;
+    
+    // Clock and reset
+    logic clk = 0;
+    logic rst_n = 0;
+    
+    // Memory interfaces
+    logic [31:0] mem_addr;
+    logic [31:0] mem_wdata;
+    logic [31:0] mem_rdata;
+    logic        mem_read;
+    logic        mem_write;
+    logic [3:0]  mem_byte_enable;
+    logic        mem_ready;
+    
+    // Debug signals
+    logic        debug_req = 0;
+    logic        debug_ack;
+    logic [31:0] debug_pc;
+    logic [31:0] debug_reg_data;
+    
+    // Memory array for simulation
+    logic [31:0] memory [0:16383]; // 64KB memory
+    
+    // Clock generation
+    always #5 clk = ~clk; // 100MHz clock
+    
+    // DUT instantiation
+    riscv_soc u_dut (
+        .clk(clk),
+        .rst_n(rst_n),
+        .mem_addr(mem_addr),
+        .mem_wdata(mem_wdata),
+        .mem_rdata(mem_rdata),
+        .mem_read(mem_read),
+        .mem_write(mem_write),
+        .mem_byte_enable(mem_byte_enable),
+        .mem_ready(mem_ready),
+        .debug_req(debug_req),
+        .debug_ack(debug_ack),
+        .debug_pc(debug_pc),
+        .debug_reg_data(debug_reg_data)
+    );
+    
+    // Memory model
+    always_ff @(posedge clk) begin
+        if (mem_write) begin
+            if (mem_byte_enable[0]) memory[mem_addr[15:2]][7:0]   <= mem_wdata[7:0];
+            if (mem_byte_enable[1]) memory[mem_addr[15:2]][15:8]  <= mem_wdata[15:8];
+            if (mem_byte_enable[2]) memory[mem_addr[15:2]][23:16] <= mem_wdata[23:16];
+            if (mem_byte_enable[3]) memory[mem_addr[15:2]][31:24] <= mem_wdata[31:24];
+        end
+    end
+    
+    assign mem_rdata = memory[mem_addr[15:2]];
+    assign mem_ready = 1'b1; // Always ready for simplicity
+    
+    // Test program loader
+    initial begin
+        // Initialize memory
+        for (int i = 0; i < 16384; i++) begin
+            memory[i] = 32'h00000013; // NOP instruction
+        end
+        
+        // Load test program
+        load_test_program();
+        
+        // Reset sequence
+        rst_n = 0;
+        #100;
+        rst_n = 1;
+        
+        // Run simulation
+        #10000;
+        
+        // Check results
+        check_results();
+        
+        $finish;
+    end
+    
+    // Test program: Simple arithmetic and memory operations
+    task load_test_program();
+        // Program: 
+        // ADDI x1, x0, 10     # x1 = 10
+        // ADDI x2, x0, 20     # x2 = 20  
+        // ADD  x3, x1, x2     # x3 = x1 + x2 = 30
+        // SW   x3, 0(x0)      # Store x3 to memory[0]
+        // LW   x4, 0(x0)      # Load from memory[0] to x4
+        // BEQ  x3, x4, end    # Branch if x3 == x4
+        // ADDI x5, x0, 99     # Should not execute
+        // end: ADDI x5, x0, 55 # x5 = 55
+        
+        memory[0] = 32'h00a00093; // ADDI x1, x0, 10
+        memory[1] = 32'h01400113; // ADDI x2, x0, 20
+        memory[2] = 32'h002081b3; // ADD  x3, x1, x2
+        memory[3] = 32'h00302023; // SW   x3, 0(x0)
+        memory[4] = 32'h00002203; // LW   x4, 0(x0)
+        memory[5] = 32'h00418463; // BEQ  x3, x4, 8 (skip 2 instructions)
+        memory[6] = 32'h06300293; // ADDI x5, x0, 99
+        memory[7] = 32'h03700293; // ADDI x5, x0, 55
+        memory[8] = 32'h00000013; // NOP (end)
+    endtask
+    
+    // Check test results
+    task check_results();
+        logic [31:0] x1, x2, x3, x4, x5;
+        logic [31:0] mem_result;
+        
+        // Access register file through the core (simplified)
+        x1 = u_dut.u_riscv_core.u_regfile.registers[1];
+        x2 = u_dut.u_riscv_core.u_regfile.registers[2];
+        x3 = u_dut.u_riscv_core.u_regfile.registers[3];
+        x4 = u_dut.u_riscv_core.u_regfile.registers[4];
+        x5 = u_dut.u_riscv_core.u_regfile.registers[5];
+        mem_result = memory[4096]; // Memory location 0x10000 (DMEM_BASE offset)
+        
+        $display("=== Test Results ===");
+        $display("x1 = %d (expected: 10)", x1);
+        $display("x2 = %d (expected: 20)", x2);
+        $display("x3 = %d (expected: 30)", x3);
+        $display("x4 = %d (expected: 30)", x4);
+        $display("x5 = %d (expected: 55)", x5);
+        $display("Memory[0] = %d (expected: 30)", mem_result);
+        
+        // Check if results are correct
+        if (x1 == 10 && x2 == 20 && x3 == 30 && x4 == 30 && x5 == 55 && mem_result == 30) begin
+            $display("*** TEST PASSED ***");
+        end else begin
+            $display("*** TEST FAILED ***");
+        end
+    endtask
+    
+    // Monitor PC and instruction execution
+    always @(posedge clk) begin
+        if (rst_n) begin
+            $display("Time: %t, PC: 0x%h", $time, debug_pc);
+        end
+    end
+
+endmodule
