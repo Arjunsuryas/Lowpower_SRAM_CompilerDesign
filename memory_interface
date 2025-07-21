@@ -1,0 +1,173 @@
+// Memory Interface Module
+module memory_interface
+    import riscv_defines::*;
+(
+    input  logic                clk,
+    input  logic                rst_n,
+    
+    // Instruction memory port (from CPU)
+    input  logic [XLEN-1:0]     imem_addr,
+    output logic [ILEN-1:0]     imem_data,
+    input  logic                imem_req,
+    output logic                imem_ready,
+    
+    // Data memory port (from CPU)
+    input  logic [XLEN-1:0]     dmem_addr,
+    input  logic [XLEN-1:0]     dmem_wdata,
+    output logic [XLEN-1:0]     dmem_rdata,
+    input  logic                dmem_read,
+    input  logic                dmem_write,
+    input  logic [3:0]          dmem_byte_enable,
+    output logic                dmem_ready,
+    
+    // External memory interface (to external SRAM/DDR)
+    output logic [XLEN-1:0]     mem_addr,
+    output logic [XLEN-1:0]     mem_wdata,
+    input  logic [XLEN-1:0]     mem_rdata,
+    output logic                mem_read,
+    output logic                mem_write,
+    output logic [3:0]          mem_byte_enable,
+    input  logic                mem_ready
+);
+
+    // Memory map parameters
+    parameter IMEM_BASE = 32'h00000000;
+    parameter IMEM_SIZE = 32'h00010000; // 64KB
+    parameter DMEM_BASE = 32'h00010000;
+    parameter DMEM_SIZE = 32'h00010000; // 64KB
+    
+    // Arbitration states
+    typedef enum logic [1:0] {
+        IDLE,
+        IMEM_ACCESS,
+        DMEM_ACCESS
+    } arb_state_t;
+    
+    arb_state_t current_state, next_state;
+    
+    // Address decode
+    logic imem_select, dmem_select;
+    
+    assign imem_select = (imem_addr >= IMEM_BASE) && (imem_addr < (IMEM_BASE + IMEM_SIZE));
+    assign dmem_select = (dmem_addr >= DMEM_BASE) && (dmem_addr < (DMEM_BASE + DMEM_SIZE));
+    
+    // Arbitration FSM
+    always_ff @(posedge clk) begin
+        if (!rst_n) begin
+            current_state <= IDLE;
+        end else begin
+            current_state <= next_state;
+        end
+    end
+    
+    always_comb begin
+        next_state = current_state;
+        
+        case (current_state)
+            IDLE: begin
+                if (dmem_read || dmem_write) begin
+                    next_state = DMEM_ACCESS;
+                end else if (imem_req) begin
+                    next_state = IMEM_ACCESS;
+                end
+            end
+            
+            IMEM_ACCESS: begin
+                if (mem_ready) begin
+                    if (dmem_read || dmem_write) begin
+                        next_state = DMEM_ACCESS;
+                    end else begin
+                        next_state = IDLE;
+                    end
+                end
+            end
+            
+            DMEM_ACCESS: begin
+                if (mem_ready) begin
+                    if (imem_req) begin
+                        next_state = IMEM_ACCESS;
+                    end else begin
+                        next_state = IDLE;
+                    end
+                end
+            end
+            
+            default: next_state = IDLE;
+        endcase
+    end
+    
+    // Memory interface signals
+    always_comb begin
+        // Default values
+        mem_addr = 32'h0;
+        mem_wdata = 32'h0;
+        mem_read = 1'b0;
+        mem_write = 1'b0;
+        mem_byte_enable = 4'h0;
+        
+        imem_ready = 1'b0;
+        dmem_ready = 1'b0;
+        
+        case (current_state)
+            IMEM_ACCESS: begin
+                if (imem_select) begin
+                    mem_addr = imem_addr;
+                    mem_read = 1'b1;
+                    mem_byte_enable = 4'hF;
+                    imem_ready = mem_ready;
+                end else begin
+                    // Invalid address - return NOP instruction
+                    imem_ready = 1'b1;
+                end
+            end
+            
+            DMEM_ACCESS: begin
+                if (dmem_select) begin
+                    mem_addr = dmem_addr;
+                    mem_wdata = dmem_wdata;
+                    mem_read = dmem_read;
+                    mem_write = dmem_write;
+                    mem_byte_enable = dmem_byte_enable;
+                    dmem_ready = mem_ready;
+                end else begin
+                    // Invalid address - signal ready immediately
+                    dmem_ready = 1'b1;
+                end
+            end
+            
+            default: begin
+                // IDLE state - allow immediate response for simple cases
+                if (imem_req && imem_select) begin
+                    imem_ready = 1'b0; // Will transition to IMEM_ACCESS next cycle
+                end else if (imem_req) begin
+                    imem_ready = 1'b1; // Invalid address
+                end
+                
+                if ((dmem_read || dmem_write) && dmem_select) begin
+                    dmem_ready = 1'b0; // Will transition to DMEM_ACCESS next cycle
+                end else if (dmem_read || dmem_write) begin
+                    dmem_ready = 1'b1; // Invalid address
+                end
+            end
+        endcase
+    end
+    
+    // Instruction data output
+    always_comb begin
+        if (imem_select && (current_state == IMEM_ACCESS)) begin
+            imem_data = mem_rdata;
+        end else begin
+            imem_data = 32'h00000013; // NOP instruction (ADDI x0, x0, 0)
+        end
+    end
+    
+    // Data memory read output
+    always_comb begin
+        if (dmem_select && (current_state == DMEM_ACCESS)) begin
+            dmem_rdata = mem_rdata;
+        end else begin
+            dmem_rdata = 32'h0;
+        end
+    end
+
+endmodule
