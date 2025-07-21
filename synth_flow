@@ -1,0 +1,64 @@
+# Synthesis Flow Script for RISC-V Processor
+# This script would be used with Synopsys Design Compiler or similar tool
+
+# Set variables
+set DESIGN_NAME "riscv_soc"
+set CLK_PERIOD 10.0
+set CLK_NAME "clk"
+set RST_NAME "rst_n"
+
+# Library setup (would need actual library files)
+set search_path [list . ../lib]
+set link_library [list * your_technology_library.db]
+set target_library [list your_technology_library.db]
+
+# Read RTL files
+read_verilog [list \
+    ../rtl/core/riscv_defines.sv \
+    ../rtl/core/riscv_alu.sv \
+    ../rtl/core/riscv_regfile.sv \
+    ../rtl/core/riscv_decoder.sv \
+    ../rtl/core/riscv_branch_unit.sv \
+    ../rtl/core/riscv_core.sv \
+    ../rtl/memory/memory_interface.sv \
+    ../rtl/top/riscv_soc.sv \
+]
+
+# Set current design
+current_design $DESIGN_NAME
+
+# Create clock
+create_clock -period $CLK_PERIOD -name $CLK_NAME [get_ports $CLK_NAME]
+
+# Set clock uncertainty and transition
+set_clock_uncertainty 0.5 [get_clocks $CLK_NAME]
+set_clock_transition 0.1 [get_clocks $CLK_NAME]
+
+# Set input/output delays
+set_input_delay -clock $CLK_NAME -max 2.0 [all_inputs]
+set_output_delay -clock $CLK_NAME -max 2.0 [all_outputs]
+
+# Set reset constraints
+set_false_path -from [get_ports $RST_NAME]
+
+# Set load constraints
+set_load 0.1 [all_outputs]
+
+# Set area constraint
+set_max_area 0
+
+# Compile the design
+compile_ultra
+
+# Report results
+report_timing -max_paths 10
+report_area -hierarchy
+report_power
+report_constraints
+
+# Write out the netlist
+write -format verilog -hierarchy -output "../netlist/${DESIGN_NAME}_syn.v"
+write_sdf -version 2.1 "../netlist/${DESIGN_NAME}_syn.sdf"
+write_sdc "../constraints/${DESIGN_NAME}_syn.sdc"
+
+echo "Synthesis completed successfully!"
