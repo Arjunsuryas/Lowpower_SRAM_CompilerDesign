@@ -1,0 +1,29 @@
+// RISC-V Branch Unit
+module riscv_branch_unit
+    import riscv_defines::*;
+(
+    input  logic [XLEN-1:0]    rs1_data,
+    input  logic [XLEN-1:0]    rs2_data,
+    input  branch_type_e       branch_type,
+    input  logic               branch_enable,
+    input  logic               jump_enable,
+    output logic               take_branch
+);
+
+    logic branch_condition;
+    
+    always_comb begin
+        case (branch_type)
+            BRANCH_EQ:  branch_condition = (rs1_data == rs2_data);
+            BRANCH_NE:  branch_condition = (rs1_data != rs2_data);
+            BRANCH_LT:  branch_condition = ($signed(rs1_data) < $signed(rs2_data));
+            BRANCH_GE:  branch_condition = ($signed(rs1_data) >= $signed(rs2_data));
+            BRANCH_LTU: branch_condition = (rs1_data < rs2_data);
+            BRANCH_GEU: branch_condition = (rs1_data >= rs2_data);
+            default:    branch_condition = 1'b0;
+        endcase
+    end
+    
+    assign take_branch = jump_enable || (branch_enable && branch_condition);
+
+endmodule
