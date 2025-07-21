@@ -1,0 +1,93 @@
+// RISC-V System on Chip Top Level
+module riscv_soc
+    import riscv_defines::*;
+(
+    input  logic        clk,
+    input  logic        rst_n,
+    
+    // External memory interface
+    output logic [31:0] mem_addr,
+    output logic [31:0] mem_wdata,
+    input  logic [31:0] mem_rdata,
+    output logic        mem_read,
+    output logic        mem_write,
+    output logic [3:0]  mem_byte_enable,
+    input  logic        mem_ready,
+    
+    // Debug interface (optional)
+    input  logic        debug_req,
+    output logic        debug_ack,
+    output logic [31:0] debug_pc,
+    output logic [31:0] debug_reg_data
+);
+
+    // Internal signals
+    logic [XLEN-1:0] imem_addr;
+    logic [ILEN-1:0] imem_data;
+    logic            imem_req;
+    logic            imem_ready;
+    
+    logic [XLEN-1:0] dmem_addr;
+    logic [XLEN-1:0] dmem_wdata;
+    logic [XLEN-1:0] dmem_rdata;
+    logic            dmem_read;
+    logic            dmem_write;
+    logic [3:0]      dmem_byte_enable;
+    logic            dmem_ready;
+    
+    // RISC-V Core instantiation
+    riscv_core u_riscv_core (
+        .clk(clk),
+        .rst_n(rst_n),
+        
+        // Instruction memory interface
+        .imem_addr(imem_addr),
+        .imem_data(imem_data),
+        .imem_req(imem_req),
+        .imem_ready(imem_ready),
+        
+        // Data memory interface
+        .dmem_addr(dmem_addr),
+        .dmem_wdata(dmem_wdata),
+        .dmem_rdata(dmem_rdata),
+        .dmem_read(dmem_read),
+        .dmem_write(dmem_write),
+        .dmem_byte_enable(dmem_byte_enable),
+        .dmem_ready(dmem_ready)
+    );
+    
+    // Memory Interface instantiation
+    memory_interface u_memory_interface (
+        .clk(clk),
+        .rst_n(rst_n),
+        
+        // CPU side
+        .imem_addr(imem_addr),
+        .imem_data(imem_data),
+        .imem_req(imem_req),
+        .imem_ready(imem_ready),
+        
+        .dmem_addr(dmem_addr),
+        .dmem_wdata(dmem_wdata),
+        .dmem_rdata(dmem_rdata),
+        .dmem_read(dmem_read),
+        .dmem_write(dmem_write),
+        .dmem_byte_enable(dmem_byte_enable),
+        .dmem_ready(dmem_ready),
+        
+        // External memory side
+        .mem_addr(mem_addr),
+        .mem_wdata(mem_wdata),
+        .mem_rdata(mem_rdata),
+        .mem_read(mem_read),
+        .mem_write(mem_write),
+        .mem_byte_enable(mem_byte_enable),
+        .mem_ready(mem_ready)
+    );
+    
+    // Debug interface (simplified)
+    assign debug_ack = debug_req;
+    assign debug_pc = u_riscv_core.pc;
+    assign debug_reg_data = u_riscv_core.u_regfile.registers[1]; // x1 register as example
+
+endmodule
