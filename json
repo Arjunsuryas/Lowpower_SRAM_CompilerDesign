@@ -1,0 +1,17 @@
+{
+  "name": "riscv-rtl-to-gdsii",
+  "version": "1.0.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "riscv-rtl-to-gdsii",
+      "version": "1.0.0",
+      "license": "MIT",
+      "devDependencies": {},
+      "engines": {
+        "node": ">=14.0.0"
+      }
+    }
+  }
+}
